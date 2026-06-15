@@ -111,11 +111,12 @@ export async function getWatches(userId: string): Promise<Watch[]> {
 }
 
 export async function addWatch(watch: Omit<Watch, 'id'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'watches'), {
-    ...watch,
-    createdAt: new Date().toISOString(),
-    active: true,
-  })
+  // Strip undefined fields — Firestore doesn't accept them
+  const data = Object.fromEntries(
+    Object.entries({ ...watch, createdAt: new Date().toISOString(), active: true })
+      .filter(([, v]) => v !== undefined)
+  )
+  const ref = await addDoc(collection(db, 'watches'), data)
   return ref.id
 }
 
