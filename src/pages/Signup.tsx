@@ -24,8 +24,15 @@ export default function Signup() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ uid: user.uid, email: user.email, plan }),
         })
-        const data: { url?: string } = await res.json()
-        if (data.url) { window.location.href = data.url; return }
+        const text = await res.text()
+        console.log('create-checkout response:', res.status, text)
+        try {
+          const data = JSON.parse(text) as { url?: string; error?: string }
+          if (data.url) { window.location.href = data.url; return }
+          if (data.error) throw new Error(data.error)
+        } catch {
+          console.error('Could not parse checkout response:', text)
+        }
       }
       navigate('/dashboard')
     } catch (err: unknown) {
@@ -46,17 +53,20 @@ export default function Signup() {
     setLoading(true)
     try {
       const user = await signUp(email, password)
-      // After signup, redirect to checkout if plan chosen
       if (plan && plan !== 'trial') {
         const res = await fetch('/.netlify/functions/create-checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ uid: user.uid, email: user.email, plan }),
         })
-        const data: { url?: string; error?: string } = await res.json()
-        if (data.url) {
-          window.location.href = data.url
-          return
+        const text = await res.text()
+        console.log('create-checkout response:', res.status, text)
+        try {
+          const data = JSON.parse(text) as { url?: string; error?: string }
+          if (data.url) { window.location.href = data.url; return }
+          if (data.error) throw new Error(data.error)
+        } catch {
+          console.error('Could not parse checkout response:', text)
         }
       }
       navigate('/dashboard')

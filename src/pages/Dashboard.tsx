@@ -95,12 +95,16 @@ export default function Dashboard() {
               {profile.plan === 'trial' ? `Trial · ${daysLeft(profile.trialEndsAt)} days left` : profile.plan}
             </span>
           )}
-          <div
-            onClick={handleSignOut}
-            title="Sign out"
-            style={{ width: 30, height: 30, borderRadius: '50%', background: '#B5D4F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#0C447C', cursor: 'pointer' }}
-          >
-            {initials}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#B5D4F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#0C447C' }}>
+              {initials}
+            </div>
+            <button
+              onClick={handleSignOut}
+              style={{ fontSize: 13, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6, fontFamily: 'inherit' }}
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </nav>
