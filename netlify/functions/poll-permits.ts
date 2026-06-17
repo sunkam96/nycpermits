@@ -58,13 +58,14 @@ interface RawPermitRow {
   owner_s_business_name?: string
   latitude?: string
   longitude?: string
-}
+} 
 
 // ─── NYC Open Data ───────────────────────────────────────────────────────────
 
 const BASE_URL = 'https://data.cityofnewyork.us/resource/ipu4-2q9a.json'
 
 async function fetchPermitsForWatch(watch: Watch, since: Date): Promise<RawPermitRow[]> {
+  console.log("fetching permits for watch ${watch}")
   const sinceStr = since.toISOString().split('T')[0]
   const conditions: string[] = [`filing_date >= '${sinceStr}'`]
 
