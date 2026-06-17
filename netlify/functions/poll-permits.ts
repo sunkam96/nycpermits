@@ -65,7 +65,7 @@ interface RawPermitRow {
 const BASE_URL = 'https://data.cityofnewyork.us/resource/ipu4-2q9a.json'
 
 async function fetchPermitsForWatch(watch: Watch, since: Date): Promise<RawPermitRow[]> {
-  console.log("fetching permits for watch ${watch}")
+  console.log(`fetching permits for watch ${JSON.stringify(watch)}`)
   const sinceStr = since.toISOString().split('T')[0]
   const conditions: string[] = [`filing_date >= '${sinceStr}'`]
 
