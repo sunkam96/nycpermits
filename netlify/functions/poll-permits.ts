@@ -41,39 +41,44 @@ interface Watch {
 }
 
 interface RawPermitRow {
-  job__: string
-  house__: string
+  job_filing_number: string
+  house_no: string
   street_name: string
   borough: string
   block: string
   lot: string
-  permit_type: string
-  permit_subtype: string
+  work_type: string
   job_description?: string
-  filing_date: string
-  issuance_date: string
-  initial_cost?: string
-  owner_s_first_name?: string
-  owner_s_last_name?: string
-  owner_s_business_name?: string
+  approved_date: string
+  issued_date?: string
+  expired_date?: string
+  estimated_job_costs?: string
+  applicant_first_name?: string
+  applicant_last_name?: string
+  applicant_business_name?: string
+  owner_business_name?: string
+  owner_name?: string
+  permit_status?: string
   latitude?: string
   longitude?: string
-} 
+  zip_code?: string
+}
 
 // ─── NYC Open Data ───────────────────────────────────────────────────────────
 
-const BASE_URL = 'https://data.cityofnewyork.us/resource/ipu4-2q9a.json'
+// DOB NOW: Build – Approved Permits (current, actively updated)
+const BASE_URL = 'https://data.cityofnewyork.us/resource/rbx6-tga4.json'
 
 async function fetchPermitsForWatch(watch: Watch, since: Date): Promise<RawPermitRow[]> {
   console.log(`fetching permits for watch ${JSON.stringify(watch)}`)
   const sinceStr = since.toISOString().split('T')[0]
-  const conditions: string[] = [`filing_date >= '${sinceStr}'`]
+  const conditions: string[] = [`approved_date >= '${sinceStr}'`]
 
   if (watch.scope === 'address' && watch.address) {
     const parts = watch.address.toUpperCase().split(' ')
     const houseNum = parts[0]
     const streetName = parts.slice(1).join(' ')
-    if (houseNum) conditions.push(`house__ = '${houseNum}'`)
+    if (houseNum) conditions.push(`house_no = '${houseNum}'`)
     conditions.push(`upper(street_name) = '${streetName}'`)
     if (watch.borough) conditions.push(`upper(borough) = '${watch.borough.toUpperCase()}'`)
   } else if (watch.borough) {
@@ -82,13 +87,13 @@ async function fetchPermitsForWatch(watch: Watch, since: Date): Promise<RawPermi
 
   if (watch.permitTypes.length && !watch.permitTypes.includes('ALL')) {
     const types = watch.permitTypes.map(t => `'${t}'`).join(',')
-    conditions.push(`permit_type in(${types})`)
+    conditions.push(`work_type in(${types})`)
   }
 
   const params = new URLSearchParams({
     $where: conditions.join(' AND '),
     $limit: '500',
-    $order: 'filing_date DESC',
+    $order: 'approved_date DESC',
   })
   const appToken = process.env.NYC_OPEN_DATA_APP_TOKEN
   if (appToken) params.set('$$app_token', appToken)
@@ -116,7 +121,7 @@ export const handler: Handler = async (_event: HandlerEvent) => {
   const watches: Watch[] = watchesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Watch))
   console.log(`Polling ${watches.length} active watches since ${since.toISOString()}`)
 
-  // 2. Load already-seen permit IDs to avoid duplicates
+  // 2. Load already-seen permit IDs (last 25h) to avoid duplicates
   const seenPermitsSnap = await db
     .collection('alerts')
     .where('sentAt', '>=', since.toISOString())
@@ -125,20 +130,22 @@ export const handler: Handler = async (_event: HandlerEvent) => {
     const data = d.data()
     return `${data.watchId}:${data.permitId}`
   }))
+  console.log(`Loaded ${seenKeys.size} already-seen keys`)
 
   // 3. Group new alerts by userId
-  const alertsByUser: Record<string, Array<{ watchId: string; permit: RawPermitRow }>> = {}
+  const alertsByUser: Record<string, Array<{ watchId: string; permit: RawPermitRow; key: string }>> = {}
 
   for (const watch of watches) {
     try {
       const rows = await fetchPermitsForWatch(watch, since)
+      console.log(`Watch ${watch.id} (${watch.label}): ${rows.length} raw rows`)
       for (const row of rows) {
-        const key = `${watch.id}:${row.job__}`
+        const key = `${watch.id}:${row.job_filing_number}`
         if (seenKeys.has(key)) continue
         seenKeys.add(key)
 
         if (!alertsByUser[watch.userId]) alertsByUser[watch.userId] = []
-        alertsByUser[watch.userId].push({ watchId: watch.id, permit: row })
+        alertsByUser[watch.userId].push({ watchId: watch.id, permit: row, key })
       }
     } catch (err) {
       console.error(`Error fetching watch ${watch.id}:`, err)
@@ -152,24 +159,28 @@ export const handler: Handler = async (_event: HandlerEvent) => {
   for (const [userId, items] of Object.entries(alertsByUser)) {
     for (const { watchId, permit } of items) {
       const ref = db.collection('alerts').doc()
+      const ownerName = permit.owner_name
+        || permit.owner_business_name
+        || [permit.applicant_business_name, [permit.applicant_first_name, permit.applicant_last_name].filter(Boolean).join(' ')].filter(Boolean).join(' / ')
+        || 'N/A'
       batch.set(ref, {
         userId,
         watchId,
-        permitId: permit.job__,
+        permitId: permit.job_filing_number,
         permit: {
-          id: permit.job__,
-          address: `${permit.house__ ?? ''} ${permit.street_name}, ${permit.borough}`.trim(),
+          id: permit.job_filing_number,
+          address: `${permit.house_no ?? ''} ${permit.street_name}, ${permit.borough}`.trim(),
           borough: permit.borough,
           block: permit.block,
           lot: permit.lot,
-          permitType: permit.permit_type,
-          permitSubtype: permit.permit_subtype,
-          filingDate: permit.filing_date,
-          issuanceDate: permit.issuance_date,
-          ownerName: [permit.owner_s_business_name, [permit.owner_s_first_name, permit.owner_s_last_name].filter(Boolean).join(' ')].filter(Boolean).join(' / ') || 'N/A',
+          permitType: permit.work_type,
+          permitSubtype: '',
+          filingDate: permit.approved_date,
+          issuanceDate: permit.issued_date ?? '',
+          ownerName,
           contractorName: 'N/A',
           jobDescription: permit.job_description ?? '',
-          estimatedJobCost: parseFloat(permit.initial_cost ?? '0'),
+          estimatedJobCost: parseFloat(permit.estimated_job_costs ?? '0'),
           latitude: permit.latitude ? parseFloat(permit.latitude) : null,
           longitude: permit.longitude ? parseFloat(permit.longitude) : null,
         },
