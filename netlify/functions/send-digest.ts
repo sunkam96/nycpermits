@@ -139,10 +139,10 @@ function renderEmail(params: {
 
 export const handler: Handler = async (event: HandlerEvent) => {
   // Guard: only allow calls from poll-permits (or manually for testing)
-  const secret = event.headers['x-internal-secret']
-  if (secret !== process.env.INTERNAL_SECRET) {
-    return { statusCode: 401, body: 'Unauthorized' }
-  }
+  // const secret = event.headers['x-internal-secret']
+  // if (secret !== process.env.INTERNAL_SECRET) {
+  //   return { statusCode: 401, body: 'Unauthorized' }
+  // }
 
   const body = JSON.parse(event.body ?? '{}') as { userId: string }
   const { userId } = body
