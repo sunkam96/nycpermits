@@ -110,7 +110,7 @@ async function fetchPermitsForWatch(watch: Watch, since: Date): Promise<RawPermi
 
 export const handler: Handler = async (_event: HandlerEvent) => {
   const db = getAdminDb()
-  const since = new Date(Date.now() - 25 * 60 * 60 * 1000) // 25h window to avoid gaps
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // 30-day window to avoid gaps
 
   // 1. Load all active watches
   const watchesSnap = await db
