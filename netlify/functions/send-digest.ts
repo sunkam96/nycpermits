@@ -146,34 +146,47 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
   const body = JSON.parse(event.body ?? '{}') as { userId: string }
   const { userId } = body
+  console.log(`[send-digest] called for userId=${userId}`)
   if (!userId) return { statusCode: 400, body: 'Missing userId' }
 
   const db = getAdminDb()
   const resend = new Resend(process.env.RESEND_API_KEY)
   const appUrl = process.env.APP_URL ?? 'https://permitwatch.nyc'
 
-  // Load user
+  // Step 1: Load user from Firestore
+  console.log(`[send-digest] loading user doc...`)
   const userDoc = await db.collection('users').doc(userId).get()
-  if (!userDoc.exists) return { statusCode: 404, body: 'User not found' }
+  if (!userDoc.exists) {
+    console.error(`[send-digest] user ${userId} not found in Firestore`)
+    return { statusCode: 404, body: 'User not found' }
+  }
   const user = userDoc.data() as { email: string; displayName?: string; plan: string }
+  console.log(`[send-digest] user found: ${user.email} (plan=${user.plan})`)
 
-  // Load unseen alerts for this user
+  // Step 2: Load alerts from last 25 hours
+  const since = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
+  console.log(`[send-digest] querying alerts since ${since}`)
   const alertsSnap = await db
     .collection('alerts')
     .where('userId', '==', userId)
-    .where('seenAt', '==', null)
+    .where('sentAt', '>=', since)
     .orderBy('sentAt', 'desc')
     .limit(100)
     .get()
 
-  if (alertsSnap.empty) return { statusCode: 200, body: 'No new alerts' }
+  console.log(`[send-digest] found ${alertsSnap.size} alerts`)
+  if (alertsSnap.empty) {
+    console.log(`[send-digest] no alerts to send, exiting`)
+    return { statusCode: 200, body: 'No new alerts' }
+  }
 
-  // Load watches for label lookup
+  // Step 3: Load watch labels
   const watchesSnap = await db.collection('watches').where('userId', '==', userId).get()
   const watchLabels: Record<string, string> = {}
   watchesSnap.docs.forEach(d => { watchLabels[d.id] = (d.data() as { label: string }).label })
+  console.log(`[send-digest] loaded ${watchesSnap.size} watches for label lookup`)
 
-  // Group alerts by watchId
+  // Step 4: Group alerts by watch
   const byWatch: Record<string, Array<{ address: string; permitType: string; estimatedJobCost: number; ownerName: string; filingDate: string }>> = {}
   alertsSnap.docs.forEach(d => {
     const data = d.data()
@@ -185,7 +198,9 @@ export const handler: Handler = async (event: HandlerEvent) => {
     watchLabel: watchLabels[watchId] ?? 'Unknown watch',
     alerts,
   }))
+  console.log(`[send-digest] grouped into ${alertsByWatch.length} watches: ${alertsByWatch.map(w => `${w.watchLabel}(${w.alerts.length})`).join(', ')}`)
 
+  // Step 5: Render and send email
   const date = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   const html = renderEmail({
     userName: user.displayName ?? '',
@@ -195,6 +210,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     unsubscribeUrl: `${appUrl}/unsubscribe?uid=${userId}`,
   })
 
+  console.log(`[send-digest] sending email to ${user.email} via Resend (from=${process.env.RESEND_FROM_EMAIL})`)
   const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL ?? 'digest@permitwatch.nyc',
     to: user.email,
@@ -203,15 +219,18 @@ export const handler: Handler = async (event: HandlerEvent) => {
   })
 
   if (error) {
-    console.error('Resend error:', error)
+    console.error(`[send-digest] Resend error:`, JSON.stringify(error))
     return { statusCode: 500, body: JSON.stringify(error) }
   }
 
-  // Mark alerts as sent (seenAt = now)
+  console.log(`[send-digest] email sent successfully`)
+
+  // Step 6: Mark alerts as seen
   const batch = db.batch()
   const now = new Date().toISOString()
-  alertsSnap.docs.forEach(d => batch.update(d.ref, { sentAt: now }))
+  alertsSnap.docs.forEach(d => batch.update(d.ref, { seenAt: now }))
   await batch.commit()
+  console.log(`[send-digest] marked ${alertsSnap.size} alerts as seen`)
 
   return { statusCode: 200, body: JSON.stringify({ ok: true, sent: alertsSnap.size }) }
 }
